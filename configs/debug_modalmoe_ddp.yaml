@@ -24,7 +24,7 @@ datasets:
           name: "blip_caption"
     sample_ratio: 1
     build_info:
-      storage: /your/path/to/cc_sbu/cc_sbu_dataset/{00000..00002}.tar
+      storage: /roco_debug/00000.tar
 
 evaluation_datasets:
   football:
