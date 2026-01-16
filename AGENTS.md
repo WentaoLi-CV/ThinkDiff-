@@ -8,7 +8,7 @@ Implement on ThinkDiff-main:
 
 ## Rules
 - Keep diffs minimal. No unrelated refactors.
-- Must keep `bash runs/train_thinkdiff_clip.sh` runnable.
+- Must keep `bash runs/debug_train_thinkdiff_clip_quantity.sh` runnable.
 - Every milestone must run the debug config with torchrun and show rank0 logs.
 
 ## Verification (to be finalized)
