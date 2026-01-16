@@ -28,10 +28,11 @@ vllm==0.6.3.post1
 peft==0.7.0
 librosa # for audio
 qwen_vl_utils
-git+https://github.com/openai/CLIP.git
+# git+https://github.com/openai/CLIP.git
+-e third_party/CLIP
 open-clip-torch
 imageio-ffmpeg
 diffusers==0.31.0
-pyairports==2.1.1
+# pyairports==2.1.1
 albumentations==1.4.16
 img2dataset
