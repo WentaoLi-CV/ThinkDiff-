@@ -1,10 +1,11 @@
 ## Goal
 Implement on ThinkDiff-main:
 - DDP multi-GPU training via torchrun
+- Dataset supports entities/modality/modality_id and distributed stratified batching with target ratios
+- Entities mask
 - Quantization 
 - LoRA on vision encoder + text encoder + text decoder
 - Replace vision FFN LoRA with ModalMoE (ThinkDiff-/thinkdiff/models/modalmoe)
-- Dataset supports entities/modality/modality_id and distributed stratified batching with target ratios
 
 ## Rules
 - Keep diffs minimal. No unrelated refactors.
@@ -13,4 +14,4 @@ Implement on ThinkDiff-main:
 
 ## Verification (to be finalized)
 - Debug DDP run: torchrun --nproc_per_node=2 train.py --cfg-path configs/debug_modalmoe_ddp.yaml
-- Print: trainable params, modality counts, loss/aux_loss
+- Print: trainable params, loss/aux_loss
