@@ -13,7 +13,7 @@ model:
 
 
 datasets:
-  cc_sbu:
+  roco:
     batch_size: 2
     vis_processor:
         train:
