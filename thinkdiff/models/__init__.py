@@ -16,12 +16,14 @@ from thinkdiff.processors.base_processor import BaseProcessor
 from thinkdiff.models.mllama_vllm_t5_embed_decoder_2 import MllamaVllmT5EmbedDecoderForConditionalGeneration_2
 from thinkdiff.models.mllama_vllm_t5_embed_decoder_2 import MllamaVllmT5EmbedDecoderForConditionalGeneration_5
 from thinkdiff.models.mllama_vllm_generate_1 import MllamaVllmGenerate_1
+from thinkdiff.models.biomedclip_vision_t5_decoder_quantity import BiomedclipVisionT5DecoderForConditionalGenerationQuantity
 
 
 __all__ = [
     "load_model",
     "BaseModel",
     "BlipVisionT5DecoderForConditionalGeneration",
+    "BiomedclipVisionT5DecoderForConditionalGenerationQuantity",
     "MllamaVllmT5EmbedDecoderForConditionalGeneration_2",
     "MllamaVllmT5EmbedDecoderForConditionalGeneration_5",
     "MllamaVllmGenerate_1"
