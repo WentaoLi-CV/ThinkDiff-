@@ -2,4 +2,4 @@ datasets:
   medical_webdataset:
     data_type: images
     build_info:
-      storage: /path/to/medical_webdataset/{00000..00002}.tar
+      storage: /data/medical_webdataset/00000.tar
