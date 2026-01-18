@@ -8,6 +8,7 @@ from thinkdiff.datasets.datasets.laion_dataset import LaionDataset
 from thinkdiff.datasets.datasets.cc_sbu_dataset import CCSBUDataset
 from thinkdiff.datasets.datasets.cc_sbu_dataset_mllama_vllm_process_wids import CCSBUMllamaVllmProcessDatasetWids
 from thinkdiff.datasets.datasets.llava_instruct_dataset_mllama_embed_2 import LlavaInstructMllamaEmbedDataset_2
+from thinkdiff.datasets.datasets.medical_webdataset import MedicalWebDataset
 
 @registry.register_builder("cc_sbu")
 class CCSBUBuilder(BaseDatasetBuilder):
@@ -40,6 +41,36 @@ class CCSBUBuilder(BaseDatasetBuilder):
 
         return datasets
     
+
+@registry.register_builder("medical_webdataset")
+class MedicalWebDatasetBuilder(BaseDatasetBuilder):
+    train_dataset_cls = MedicalWebDataset
+
+    DATASET_CONFIG_DICT = {"default": "configs/datasets/medical_webdataset/defaults.yaml"}
+
+    def _download_ann(self):
+        pass
+
+    def _download_vis(self):
+        pass
+
+    def build(self):
+        self.build_processors()
+
+        build_info = self.config.build_info
+
+        datasets = dict()
+        split = "train"
+
+        dataset_cls = self.train_dataset_cls
+        datasets[split] = dataset_cls(
+            vis_processor=self.vis_processors[split],
+            text_processor=self.text_processors[split],
+            location=build_info.storage,
+        ).inner_dataset
+
+        return datasets
+
 
 @registry.register_builder("laion")
 class LaionBuilder(BaseDatasetBuilder):

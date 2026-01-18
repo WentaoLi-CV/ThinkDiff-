@@ -13,7 +13,7 @@ model:
 
 
 datasets:
-  roco:
+  medical_webdataset:
     batch_size: 5
     vis_processor:
         train:
@@ -24,7 +24,7 @@ datasets:
           name: "blip_caption"
     sample_ratio: 1
     build_info:
-      storage: /roco_debug/00000.tar
+      storage: data/roco_debug/00000.tar
 
 evaluation_datasets:
   football:
