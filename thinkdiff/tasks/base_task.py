@@ -66,9 +66,12 @@ class BaseTask:
 
         return datasets
 
+    # TODO
+    # def train_step(self, model, samples):
+    #     loss = model(samples)["loss"]
+    #     return loss
     def train_step(self, model, samples):
-        loss = model(samples)["loss"]
-        return loss
+        return model(samples)  # 返回 dict
 
     def valid_step(self, model, samples):
         raise NotImplementedError
@@ -198,6 +201,13 @@ class BaseTask:
         metric_logger = MetricLogger(delimiter="  ")
         metric_logger.add_meter("lr", SmoothedValue(window_size=1, fmt="{value:.6f}"))
         metric_logger.add_meter("loss", SmoothedValue(window_size=1, fmt="{value:.4f}"))
+        # TODO
+        log_aux_loss = bool(getattr(self.cfg.run_cfg, "log_aux_loss", False))
+        log_t5_loss = bool(getattr(self.cfg.run_cfg, "log_t5_loss", False))
+        if log_aux_loss:
+            metric_logger.add_meter("aux_loss", SmoothedValue(window_size=1, fmt="{value:.4f}"))
+        if log_t5_loss:
+            metric_logger.add_meter("t5_loss", SmoothedValue(window_size=1, fmt="{value:.4f}"))
 
         # if iter-based runner, schedule lr based on inner epoch.
         logging.info(
@@ -234,8 +244,19 @@ class BaseTask:
 
             lr_scheduler.step(cur_epoch=inner_epoch, cur_step=i)
 
+            # TODO
+            # with torch.amp.autocast('cuda', enabled=use_amp, dtype=amp_dtype):
+            #     loss = self.train_step(model=model, samples=samples)
             with torch.amp.autocast('cuda', enabled=use_amp, dtype=amp_dtype):
-                loss = self.train_step(model=model, samples=samples)
+                out = self.train_step(model=model, samples=samples)
+            if isinstance(out, dict):
+                loss = out["loss"]
+                aux_loss = out.get("aux_loss", None)
+                t5_loss = out.get("t5_loss", None)
+            else:
+                loss = out
+                aux_loss = None
+                t5_loss = None
 
             # after_train_step()
             if use_amp:
@@ -250,17 +271,35 @@ class BaseTask:
                         scaler.unscale_(optimizer)
                         torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
                     scaler.step(optimizer)
-                    scaler.update()                     
-                else:    
+                    scaler.update()
+                else:
                     if use_clip_grad_norm:
                         torch.nn.utils.clip_grad_norm_(trainable_params, max_grad_norm)
                     optimizer.step()
                 optimizer.zero_grad()
-                # if self.cfg.wandb_log:
-                if self.cfg.run_cfg.wandb_log:
-                    wandb.log({"epoch": inner_epoch, "loss": loss})
+
+                # TODO
+                # if self.cfg.run_cfg.wandb_log:
+                #     wandb.log({"epoch": inner_epoch, "loss": loss})
+            # metric_logger.update(loss=loss.item())
+            # metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+                if self.cfg.run_cfg.wandb_log and get_rank() == 0:
+                    payload = {
+                        "epoch": inner_epoch,
+                        "loss": float(loss.detach().item()),
+                        "lr": float(optimizer.param_groups[0]["lr"]),
+                    }
+                    if aux_loss is not None:
+                        payload["aux_loss"] = float(aux_loss.detach().item())
+                    if t5_loss is not None:
+                        payload["t5_loss"] = float(t5_loss.detach().item())
+                    wandb.log(payload)
             metric_logger.update(loss=loss.item())
             metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+            if log_aux_loss and aux_loss is not None:
+                metric_logger.update(aux_loss=float(aux_loss.detach().item()))
+            if log_t5_loss and t5_loss is not None:
+                metric_logger.update(t5_loss=float(t5_loss.detach().item()))
 
         # after train_epoch()
         # gather the stats from all processes
