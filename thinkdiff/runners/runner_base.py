@@ -66,32 +66,85 @@ class RunnerBase:
 
     @property
     def device(self):
+        # TODO
+        # if self._device is None:
+        #     self._device = torch.device(self.config.run_cfg.device)
+        # return self._device
         if self._device is None:
-            self._device = torch.device(self.config.run_cfg.device)
-
+            dev = str(self.config.run_cfg.device)
+            if dev == "cuda" and hasattr(self.config.run_cfg, "gpu"):
+                dev = f"cuda:{self.config.run_cfg.gpu}"
+            self._device = torch.device(dev)
         return self._device
 
     @property
     def use_distributed(self):
         return self.config.run_cfg.distributed
 
+    # TODO
+    # @property
+    # def model(self):
+    #     """
+    #     A property to get the DDP-wrapped model on the device.
+    #     """
+    #     # move model to device
+    #     if self._model.device != self.device:
+    #         self._model = self._model.to(self.device)
+    #
+    #         # distributed training wrapper
+    #         if self.use_distributed:
+    #             if self._wrapped_model is None:
+    #                 self._wrapped_model = DDP(
+    #                     self._model, device_ids=[self.config.run_cfg.gpu], find_unused_parameters=getattr(self.config.run_cfg, "find_unused_parameters", True)
+    #                 )
+    #         else:
+    #             self._wrapped_model = self._model
+    #
+    #     return self._wrapped_model
     @property
     def model(self):
         """
-        A property to get the DDP-wrapped model on the device.
+        Get the (optionally DDP-wrapped) model.
+        - Always set _wrapped_model (avoid returning None).
+        - Do NOT call .to() on bnb 4bit/8bit models.
         """
-        # move model to device
-        if self._model.device != self.device:
-            self._model = self._model.to(self.device)
+        if self._wrapped_model is not None:
+            return self._wrapped_model
 
-            # distributed training wrapper
-            if self.use_distributed:
-                if self._wrapped_model is None:
-                    self._wrapped_model = DDP(
-                        self._model, device_ids=[self.config.run_cfg.gpu], find_unused_parameters=getattr(self.config.run_cfg, "find_unused_parameters", True)
-                    )
+        def _is_bnb_quant(m):
+            return bool(getattr(m, "is_loaded_in_4bit", False) or getattr(m, "is_loaded_in_8bit", False))
+
+        # 1) move model to device if needed (skip for quantized model)
+        try:
+            cur_dev = self._model.device
+        except Exception:
+            # fallback: check first parameter
+            cur_dev = next(self._model.parameters()).device
+
+        if cur_dev != self.device:
+            if _is_bnb_quant(self._model):
+                # 量化模型一般在 from_pretrained 时就应放到正确 GPU；这里直接报错更清晰
+                raise RuntimeError(
+                    f"Quantized model is on {cur_dev} but runner expects {self.device}. "
+                    "Please load with device_map bound to LOCAL_RANK."
+                )
             else:
-                self._wrapped_model = self._model
+                self._model = self._model.to(self.device)
+
+        # 2) make sure trainable head is on this rank's GPU (安全起见)
+        if hasattr(self._model, "mm_projector"):
+            self._model.mm_projector = self._model.mm_projector.to(self.device)
+
+        # 3) wrap with DDP (or not)
+        if self.use_distributed:
+            self._wrapped_model = DDP(
+                self._model,
+                device_ids=[self.config.run_cfg.gpu],
+                output_device=self.config.run_cfg.gpu,
+                find_unused_parameters=getattr(self.config.run_cfg, "find_unused_parameters", True),
+            )
+        else:
+            self._wrapped_model = self._model
 
         return self._wrapped_model
 
