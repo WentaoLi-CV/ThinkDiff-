@@ -70,7 +70,7 @@ model:
 
 datasets:
 
-  meidical_webdataset:
+  medical_webdataset:
     batch_size: 5 # 42
     vis_processor:
         train:
