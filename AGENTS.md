@@ -8,11 +8,5 @@ Implement in ThinkDiff-main:
 - Per-rank (per-GPU) balanced batching for MoE: each rank local batch approx 1:1:1:1:1 modalities per step
 - Replace vision FFN (prefer fc2) LoRA with ModalMoE, gated by modality_id via MoEContext
 
-## Constraints / Rules
-- Keep diffs minimal. No unrelated refactors.
-- Must keep 'bash runs/debug_train_thinkdiff_clip_quantity.sh' runnable on my server.
-- The Codex environment cannot access PyPI/GitHub reliably (pip/torchrun may fail). Treat Codex as OFFLINE code-editing:
-  - DO NOT run pip installs or training commands in Codex.
-  - Use ripgrep and file inspection to locate code, then implement changes.
 
 
