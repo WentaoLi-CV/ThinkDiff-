@@ -1,30 +1,87 @@
 model:
-  arch: blip-vision-t5-decoder
+  arch: biomedclip-vision-t5-decoder-quantity
   model_type: pretrain_blip_vision_t5_decoder
   use_decoder_only_language_model: False
-  blip2_pretrained_model_name_or_path: "Salesforce/blip2-flan-t5-xxl"
+  blip2_pretrained_model_name_or_path: "/public/lwt/PycharmProjects/hf_models/blip2-flan-t5-xxl" # "Salesforce/blip2-flan-t5-xxl"
+  t5_model_name_or_path: "/public/lwt/PycharmProjects/hf_models/flan-t5-xxl"
+  biomedclip_model_dir: "/public/lwt/PycharmProjects/hf_models/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224"
+  biomedclip_align_to_16x16: False   # 想输出 (B,257,768) 就改 true
   freeze_vision: True
   freeze_language: True
   dtype: "bfloat16"
-  max_txt_len: 32
+  max_txt_len: 32  # 32gb
   mm_projector_type: "mlp2x_gelu_t5_norm"
   vision_downsample_factor: 2
   layer_norm_reinit_weight_with_language_encoder: True
 
+  # quantity
+  quantization: 4bit          # none / 8bit / 4bit
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: True
+  projector_keep_pretrained: False # ✅ 你用 BiomedCLIP(768) 必须 False
+  gradient_checkpointing: False
+
+
+  # vision LoRA
+  use_lora_vision: True
+  vision_lora_impl: "modalmoe"   # peft / modalmoe / none
+  # ====== PEFT vision LoRA（vision_lora_impl=peft 才用到）======
+  lora_vision_r: 8
+  lora_vision_alpha: 16
+  lora_vision_dropout: 0.05
+  lora_vision_target_modules: [ "fc1","fc2" ]
+  # ====== ModalMoE（vision_lora_impl=modalmoe 才用到）======
+  num_modalities: 5
+  modalmoe_target_modules: [ "fc1","fc2" ]
+  modalmoe_r: 8
+  modalmoe_alpha: 16
+  modalmoe_dropout: 0.05
+  shared_experts: 2
+  modality_experts: 2
+  gate_embed_dim: 16 # 模态标签
+  gate_hidden_dim: 128
+  wspec_low: 0.6
+  wspec_high: 0.8
+  wspec_prior_weight: 0.1
+  lbc_weight: 0.01 # 0.01
+  enable_g5: True
+  g5_weight: 0.01
+  moe_aux_weight: 1.0
+
+  # If use LoRAMoE turn True.
+  log_aux_loss: True
+  log_t5_loss: True
+
+  # text encoder LoRA
+  use_lora_text: True
+  lora_text_r: 8
+  lora_text_alpha: 16
+  lora_text_dropout: 0.05
+  lora_text_target_modules: [ "wi", "wo", "wi_0", "wi_1" ]
+
+  # 如果你还想给 decoder 也上 LoRA（可选）
+  lora_text_apply_to_decoder: False
+
+  # TODO
+  mask_strategy: "entity_span_t5"
+  entity_mask_prob: 0.8
+  span_mask_ratio: 0.3
+  max_sentinels: 20
 
 datasets:
-  medical_webdataset:
-    batch_size: 5
+
+  meidical_webdataset:
+    batch_size: 5 # 42
     vis_processor:
         train:
           name: "blip2_image_train"
           image_size: 224
     text_processor:
         train:
-          name: "blip_caption"
-    sample_ratio: 1
+          name: "raw_caption"  # raw_caption blip_caption
+    sample_ratio: 1 # 14  sample ratio is used for multi-datasets, and set 1 represent no weight
     build_info:
-      storage: data/roco_debug/00000.tar
+      storage: /public/lwt/PycharmProjects/ThinkDiff-main/data/roco_debug/00000.tar # ThinkDiff-main/data/medicat_new/{00000..00010}.tar
 
 evaluation_datasets:
   football:
@@ -50,19 +107,19 @@ run:
   max_grad_norm: 1.0
 
   weight_decay: 0.05
-  max_epoch: 1
-  num_workers: 8
-  warmup_steps: 1
-  iters_per_epoch: 2
+  max_epoch: 2 # 40
+  num_workers: 8 # 8
+  warmup_steps: 1 # 2000
+  iters_per_epoch: 2  # 5000
 
   seed: 42
-  output_dir: "./train_thinkdiff_clip_debug"
+  output_dir: "./weight_log/roco_visloramoe_lbcw001_textenclora_2000_text32_bs4_entitymask03"
 
   amp: True
   amp_dtype: "bfloat16"
-  resume_ckpt_path: null
+  resume_ckpt_path: null # null
 
-  find_unused_parameters: False
+  find_unused_parameters: False # default:False
 
   evaluate: False 
   train_splits: ["train"]
@@ -73,6 +130,8 @@ run:
   dist_url: "env://"
   distributed: True
 
-  wandb_log: False
-  job_name: train_thinkdiff_clip_debug
-  wandb_project_name: train_thinkdiff_clip_debug
+  wandb_log: False  # True: visualize wandb result
+  job_name: roco_visloramoe_lbcw001_textenclora_2000_text32_bs4_entitymask03 # roco_biovision_visloramoe_lbcw001_textlora_2000_text32_entitymask07
+  wandb_project_name: train_roco
+  # TODO
+  wandb_api_key: "b3f2e5da6d60bdb4fff9470bba639815aab1a67a"
