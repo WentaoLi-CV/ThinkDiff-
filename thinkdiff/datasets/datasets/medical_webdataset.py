@@ -79,7 +79,7 @@ def roundrobin_by_modality(data, num_modalities=5, key="json", history_size=200,
             yield bufs[mid].popleft()  # O(1)操作
 
 
-class CCSBUDataset(BaseDataset):
+class MedicalWebDataset(BaseDataset):
     def __init__(self, vis_processor, text_processor, location):
         super().__init__(vis_processor=vis_processor, text_processor=text_processor)
         # self._dbg = 0
