@@ -25,9 +25,24 @@ from thinkdiff.models.model_utils import (
     )
 import warnings
 from torch.nn import CrossEntropyLoss
+import json
+import logging as py_logging
+from thinkdiff.common.dist_utils import is_main_process
 
 logger = logging.get_logger(__name__)
 
+def _parse_entities(entities):
+    if entities is None:
+        return []
+    if isinstance(entities, str):
+        try:
+            return json.loads(entities)
+        except json.JSONDecodeError:
+            return []
+    if isinstance(entities, list):
+        return entities
+    return []
+    
 def build_vision_projector(config):
     projector_type = getattr(config, 'mm_projector_type', 'linear')
 
@@ -458,10 +473,46 @@ class BlipVisionT5DecoderForConditionalGeneration(Blip2PreTrainedModel, BaseMode
         
         text_input = []
         text_output = []
-        for answer_i in answer:
-            text_input_i, text_output_i = random_split_string(answer_i)
+        entity_stats = []
+        use_entity_span_corruption = getattr(self, "use_entity_span_corruption", False)
+        entity_mask_prob = getattr(self, "entity_mask_prob", 0.0)
+        max_entity_spans_to_mask = getattr(self, "max_entity_spans_to_mask", 0)
+        entities_list = samples.get("entities", None)
+        for idx, answer_i in enumerate(answer):
+            entities_i = None
+            if entities_list is not None:
+                entities_i = entities_list[idx]
+            if use_entity_span_corruption and entities_i is not None:
+                (
+                    text_input_i,
+                    text_output_i,
+                    stat_i,
+                ) = self._build_entity_span_corruption(
+                    answer_i,
+                    entities_i,
+                    mask_prob=entity_mask_prob,
+                    max_spans=max_entity_spans_to_mask,
+                )
+                entity_stats.append(stat_i)
+            else:
+                text_input_i, text_output_i = random_split_string(answer_i)
             text_input.append(text_input_i)
             text_output.append(text_output_i)
+
+        if entity_stats and "iters" in samples and "epoch" in samples:
+            if is_main_process() and samples["iters"] == 0:
+                avg_entities = sum(s["entities"] for s in entity_stats) / len(entity_stats)
+                avg_masked = sum(s["masked_spans"] for s in entity_stats) / len(entity_stats)
+                avg_ratio = sum(s["masked_token_ratio"] for s in entity_stats) / len(entity_stats)
+                skipped = sum(s["skipped_spans"] for s in entity_stats)
+                py_logging.info(
+                    "Entity span corruption stats - entities/sample: %.2f, masked spans/sample: %.2f, "
+                    "masked token ratio: %.4f, skipped spans: %d",
+                    avg_entities,
+                    avg_masked,
+                    avg_ratio,
+                    skipped,
+                )
 
         input_tokens = self.tokenizer(
             text_input,
@@ -497,7 +548,133 @@ class BlipVisionT5DecoderForConditionalGeneration(Blip2PreTrainedModel, BaseMode
         loss = outputs[0]
 
         return {"loss": loss}
-    
+
+    def _build_entity_span_corruption(self, caption, entities, mask_prob=0.0, max_spans=0):
+        parsed_entities = sorted(
+            _parse_entities(entities),
+            key=lambda ent: ent.get("start", 0) if isinstance(ent, dict) else 0,
+        )
+        spans = []
+        skipped = 0
+        last_end = -1
+        for ent in parsed_entities:
+            if not isinstance(ent, dict):
+                skipped += 1
+                continue
+            start = ent.get("start")
+            end = ent.get("end")
+            if start is None or end is None:
+                skipped += 1
+                continue
+            if not isinstance(start, int) or not isinstance(end, int):
+                skipped += 1
+                continue
+            if start < 0 or end <= start or end > len(caption):
+                skipped += 1
+                continue
+            if start < last_end:
+                skipped += 1
+                continue
+            spans.append((start, end))
+            last_end = end
+
+        num_entities = len(parsed_entities)
+        total_tokens = len(self.tokenizer(caption, add_special_tokens=False).input_ids)
+        if mask_prob <= 0 or max_spans <= 0 or total_tokens == 0:
+            text_input, text_output = random_split_string(caption)
+            return text_input, text_output, {
+                "entities": num_entities,
+                "masked_spans": 0,
+                "masked_token_ratio": 0.0,
+                "skipped_spans": skipped,
+            }
+
+        target_tokens = max(1, int(round(total_tokens * mask_prob)))
+
+        word_spans = []
+        cursor = 0
+        for word in caption.split():
+            idx = caption.find(word, cursor)
+            if idx == -1:
+                continue
+            start = idx
+            end = idx + len(word)
+            word_spans.append((start, end))
+            cursor = end
+
+        def _overlaps(a, b):
+            return not (a[1] <= b[0] or b[1] <= a[0])
+
+        non_entity_spans = []
+        for w_span in word_spans:
+            if any(_overlaps(w_span, e_span) for e_span in spans):
+                continue
+            non_entity_spans.append(w_span)
+
+        random.shuffle(spans)
+        random.shuffle(non_entity_spans)
+
+        selected = []
+        masked_tokens = 0
+
+        def _span_token_len(span):
+            span_text = caption[span[0]:span[1]]
+            return len(self.tokenizer(span_text, add_special_tokens=False).input_ids)
+
+        for span in spans:
+            if len(selected) >= max_spans or masked_tokens >= target_tokens:
+                break
+            span_tokens = _span_token_len(span)
+            if span_tokens == 0:
+                continue
+            selected.append(span)
+            masked_tokens += span_tokens
+
+        for span in non_entity_spans:
+            if len(selected) >= max_spans or masked_tokens >= target_tokens:
+                break
+            if any(_overlaps(span, chosen) for chosen in selected):
+                continue
+            span_tokens = _span_token_len(span)
+            if span_tokens == 0:
+                continue
+            selected.append(span)
+            masked_tokens += span_tokens
+
+        if not selected:
+            text_input, text_output = random_split_string(caption)
+            return text_input, text_output, {
+                "entities": num_entities,
+                "masked_spans": 0,
+                "masked_token_ratio": 0.0,
+                "skipped_spans": skipped,
+            }
+
+        selected = sorted(selected, key=lambda s: s[0])
+
+        masked_input_parts = []
+        label_parts = []
+        cursor = 0
+        for idx, (start, end) in enumerate(selected):
+            masked_input_parts.append(caption[cursor:start])
+            masked_input_parts.append(f"<extra_id_{idx}>")
+            span_text = caption[start:end]
+            label_parts.append(f"<extra_id_{idx}>")
+            label_parts.append(span_text)
+            cursor = end
+
+        masked_input_parts.append(caption[cursor:])
+        masked_input = "".join(masked_input_parts)
+        labels = " ".join(part for part in label_parts if part)
+        masked_ratio = masked_tokens / total_tokens if total_tokens > 0 else 0.0
+
+        return masked_input, labels, {
+            "entities": num_entities,
+            "masked_spans": len(selected),
+            "masked_token_ratio": masked_ratio,
+            "skipped_spans": skipped,
+        }
+        
     @classmethod
     def from_config(cls, cfg):
 
