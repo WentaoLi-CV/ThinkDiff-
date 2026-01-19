@@ -3,37 +3,9 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
 
+from thinkdiff.models.moe_context import MoEContext
 
-class MoEContext:
-    def __init__(self, num_modalities: int):
-        self.num_modalities = int(num_modalities)
-        self.modality_ids: Optional[torch.LongTensor] = None
-        self._aux_loss = None  # torch.float32 scalar on device
-
-    def set_modality_ids(self, modality_ids: Optional[torch.Tensor], device: torch.device):
-        if modality_ids is None:
-            self.modality_ids = None
-        else:
-            mid = modality_ids.to(device=device, dtype=torch.long)
-            mid = mid.clamp_(0, self.num_modalities - 1)
-            self.modality_ids = mid
-        # reset aux each forward
-        self._aux_loss = torch.zeros((), device=device, dtype=torch.float32)
-
-    def add_aux_loss(self, loss: torch.Tensor):
-        if loss is None:
-            return
-        self._aux_loss = self._aux_loss + loss.to(dtype=torch.float32)
-
-    def pop_aux_loss(self) -> torch.Tensor:
-        if self._aux_loss is None:
-            return torch.zeros((), dtype=torch.float32)
-        out = self._aux_loss
-        self._aux_loss = torch.zeros_like(out)
-        return out
-        
 def transpose(weight, fan_in_fan_out: bool):
     return weight.T if fan_in_fan_out else weight
 
@@ -185,7 +157,7 @@ class ModalMoELinear(nn.Linear, LoraLayer):
         lbc_m_sum = torch.zeros((), device=result.device, dtype=torch.float32)
         tok_sum = torch.zeros((), device=result.device, dtype=torch.float32)
 
-        # 关键：每个 m 都执行一次 routing + experts（保证参数参与图）
+        # ✅ 关键：每个 m 都执行一次 routing + experts（保证参数参与图）
         for m in range(self.num_modalities):
             # (B,) bool -> (B,1,1) float mask
             mask_b = (modality_ids == m)
@@ -239,7 +211,7 @@ class ModalMoELinear(nn.Linear, LoraLayer):
             comp = self._cosine_sq(delta_s.to(torch.float32), delta_m.to(torch.float32))
             aux_loss = aux_loss + comp * float(self.g5_weight)
 
-        self.ctx.add_aux_loss(aux_loss)  #  累加到全局 context
+        self.ctx.add_aux_loss(aux_loss)  
 
         if squeeze_2d:
             result = result.squeeze(1)
