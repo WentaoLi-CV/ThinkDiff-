@@ -60,7 +60,7 @@ model:
   lora_text_target_modules: [ "wi", "wo", "wi_0", "wi_1" ]
 
   # 如果你还想给 decoder 也上 LoRA（可选）
-  lora_text_apply_to_decoder: False
+  lora_text_apply_to_decoder: True
 
   # TODO
   mask_strategy: "entity_span_t5"
