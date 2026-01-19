@@ -15,14 +15,4 @@ Implement in ThinkDiff-main:
   - DO NOT run pip installs or training commands in Codex.
   - Use ripgrep and file inspection to locate code, then implement changes.
 
-## Verification protocol (my server-side)
-After each step, provide:
-1) Files changed (paths)
-2) Concise diff summary (what/why)
-3) Exact server-side commands to verify (torchrun/bash) + expected key logs
-4) Common failure modes + debugging tips
 
-## Key logs to check (rank0)
-- rank/local_rank/world_size, device binding per rank
-- trainable parameter summary
-- loss + aux_loss (from MoEContext)
