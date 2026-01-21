@@ -234,6 +234,13 @@ class BaseTask:
             samples = next(data_loader)
 
             samples = prepare_sample(samples, cuda_enabled=cuda_enabled)
+            # TODO
+            if i < 10:
+                mid = samples.get("modality_id", None)
+                if mid is not None and torch.is_tensor(mid):
+                    counts = torch.bincount(mid, minlength=4).detach().cpu().tolist()
+                    logging.info(f"[rank{get_rank()}] iter={i} modality counts={counts}")
+
             samples.update(
                 {
                     "epoch": inner_epoch,
