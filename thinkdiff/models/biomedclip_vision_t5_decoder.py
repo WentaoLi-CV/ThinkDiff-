@@ -112,6 +112,7 @@ def build_bnb_quant_config(cfg, dtype: torch.dtype):
         )
 
     if quant_mode in ["4bit", "nf4"]:
+        # ⚠️ 关键：compute_dtype 尽量和你的 AMP 一致（你现在是 bf16）
         compute_dtype = dtype
         if compute_dtype not in (torch.float16, torch.bfloat16):
             compute_dtype = torch.float16
@@ -1002,6 +1003,50 @@ class BiomedclipVisionT5DecoderForConditionalGenerationQuantity(Blip2PreTrainedM
                         module.load_state_dict(model.language_model.encoder.final_layer_norm.state_dict())
                         print("Reinit T5LayerNorm with language encoder")
 
+        if quant_cfg is not None:
+            try:
+                del model.language_model
+            except Exception:
+                pass
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            model.language_model = T5ForDecoder.from_pretrained(
+                t5_src,
+                quantization_config=quant_cfg,
+                device_map={"": local_rank},
+                torch_dtype=dtype,
+                low_cpu_mem_usage=True,
+            )
+
+            # k-bit 训练准备（会处理 layernorm、requires_grad、cast 等）
+            model.language_model = prepare_model_for_kbit_training(
+                model.language_model,
+                use_gradient_checkpointing=bool(cfg.get("gradient_checkpointing", False)),
+            )
+
+            # 更新 t5_hidden（因为 language_model 已替换）
+            t5_hidden = int(getattr(model.language_model.config, "d_model", model_config.text_config.hidden_size))
+
+        # ===== 12) text encoder LoRA (trainable, PEFT switch) =====
+        use_lora_text = bool(cfg.get("use_lora_text", False))
+        if use_lora_text:
+            if quant_cfg is not None:
+                lcfg = LoraConfig(
+                    r=int(cfg.get("lora_text_r", 8)),
+                    lora_alpha=int(cfg.get("lora_text_alpha", 16)),
+                    lora_dropout=float(cfg.get("lora_text_dropout", 0.0)),
+                    bias="none",
+                    target_modules=cfg.get("lora_text_target_modules", ["wi", "wo", "wi_0", "wi_1"]),
+                    task_type="SEQ_2_SEQ_LM",
+                )
+                model.language_model = get_peft_model(model.language_model, lcfg)
+
+        if not bool(cfg.get("lora_text_apply_to_decoder", False)):
+            for n, p in model.language_model.named_parameters():
+                if ("decoder" in n) and ("lora_" in n):
+                    p.requires_grad_(False)
+
         # ===== 11) vision ModalMoE (trainable) =====
         use_lora_vision = cfg.get("use_lora_vision", False)
         vision_impl = cfg.get("vision_lora_impl", "peft")  # "peft" or "modalmoe" or "none"
@@ -1052,50 +1097,21 @@ class BiomedclipVisionT5DecoderForConditionalGenerationQuantity(Blip2PreTrainedM
             else:
                 model.vision_model = vision_backbone
 
-        # ===== build quantized language_model (T5) =====
-        if quant_cfg is not None:
+        if bool(cfg.get("gradient_checkpointing", True)):
             try:
-                del model.language_model
-            except Exception:
-                pass
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+                model.language_model.gradient_checkpointing_enable()
+                model.language_model.config.use_cache = False
+                print("[GC] enabled for language_model; use_cache=False")
+            except Exception as e:
+                print(f"[GC] skip language_model: {e}")
 
-            model.language_model = T5ForDecoder.from_pretrained(
-                t5_src,
-                quantization_config=quant_cfg,
-                device_map={"": local_rank},
-                torch_dtype=dtype,
-                low_cpu_mem_usage=True,
-            )
-
-            # k-bit 训练准备（会处理 layernorm、requires_grad、cast 等）
-            model.language_model = prepare_model_for_kbit_training(
-                model.language_model,
-                use_gradient_checkpointing=bool(cfg.get("gradient_checkpointing", False)),
-            )
-
-            # 更新 t5_hidden（因为 language_model 已替换）
-            t5_hidden = int(getattr(model.language_model.config, "d_model", model_config.text_config.hidden_size))
-
-        # ===== 12) text encoder LoRA (trainable, PEFT switch) =====
-        use_lora_text = bool(cfg.get("use_lora_text", False))
-        if use_lora_text:
-            if quant_cfg is not None:
-                lcfg = LoraConfig(
-                    r=int(cfg.get("lora_text_r", 8)),
-                    lora_alpha=int(cfg.get("lora_text_alpha", 16)),
-                    lora_dropout=float(cfg.get("lora_text_dropout", 0.0)),
-                    bias="none",
-                    target_modules=cfg.get("lora_text_target_modules", ["wi", "wo", "wi_0", "wi_1"]),
-                    task_type="SEQ_2_SEQ_LM",
-                )
-                model.language_model = get_peft_model(model.language_model, lcfg)
-
-        if not bool(cfg.get("lora_text_apply_to_decoder", False)):
-            for n, p in model.language_model.named_parameters():
-                if ("decoder" in n) and ("lora_" in n):
-                    p.requires_grad_(False)
+            try:
+                vision_backbone = model.vision_model.trunk if hasattr(model.vision_model, "trunk") else model.vision_model
+                if hasattr(vision_backbone, "gradient_checkpointing_enable"):
+                    vision_backbone.gradient_checkpointing_enable()
+                    print("[GC] enabled for vision_model")
+            except Exception as e:
+                print(f"[GC] skip vision_model: {e}")
 
         # ===== 13) move non-quant modules to device/dtype =====
         if torch.cuda.is_available():
