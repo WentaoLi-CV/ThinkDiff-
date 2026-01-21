@@ -63,18 +63,27 @@ class RunnerClipT5(RunnerBase):
 
         def _create_loader(dataset, num_workers, bsz, is_train, collate_fn):
             # create a single dataloader for each split
-            if isinstance(dataset, ChainDataset) or isinstance(
-                dataset, wds.DataPipeline
-            ):
+            if isinstance(dataset, ChainDataset) or isinstance(dataset, wds.DataPipeline):
                 # wds.WebdDataset instance are chained together
                 # webdataset.DataPipeline has its own sampler and collate_fn
+                # TODO
+                # loader = iter(
+                #     DataLoader(
+                #         dataset,
+                #         batch_size=bsz,
+                #         num_workers=num_workers,
+                #         pin_memory=True,
+                #         collate_fn=collate_fn
+                #     )
+                # )
+                already_batched = getattr(dataset, "already_batched", False)
                 loader = iter(
                     DataLoader(
                         dataset,
-                        batch_size=bsz,
+                        batch_size=None if already_batched else bsz,  # 关键
                         num_workers=num_workers,
                         pin_memory=True,
-                        collate_fn=collate_fn
+                        collate_fn=None if already_batched else collate_fn,  # 关键
                     )
                 )
             else:
