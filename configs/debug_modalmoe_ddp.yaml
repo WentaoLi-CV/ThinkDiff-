@@ -4,7 +4,7 @@ model:
   use_decoder_only_language_model: False
   blip2_pretrained_model_name_or_path: "/public/lwt/PycharmProjects/hf_models/blip2-flan-t5-xxl" # "Salesforce/blip2-flan-t5-xxl"
   t5_model_name_or_path: "/public/lwt/PycharmProjects/hf_models/flan-t5-xxl"
-  biomedclip_model_dir: "/public/lwt/PycharmProjects/hf_models/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224"
+  biomedclip_model_dir: "/public/lwt/PycharmProjects/hf_models/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224" # /public/lwt/PycharmProjects/hf_models/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224
   biomedclip_align_to_16x16: False   # 想输出 (B,257,768) 就改 true
   freeze_vision: True
   freeze_language: True
@@ -69,9 +69,10 @@ model:
   max_sentinels: 20
 
 datasets:
-
   medical_webdataset:
-    batch_size: 5 # 42
+    batch_size: 4 # 42
+    balance_per_batch: True # 开启“严格按模态凑batch”
+    per_modality: 1
     vis_processor:
         train:
           name: "blip2_image_train"
@@ -81,7 +82,7 @@ datasets:
           name: "raw_caption"  # raw_caption blip_caption
     sample_ratio: 1 # 14  sample ratio is used for multi-datasets, and set 1 represent no weight
     build_info:
-      storage: /public/lwt/PycharmProjects/ThinkDiff-main/data/roco_debug/00000.tar # ThinkDiff-main/data/medicat_new/{00000..00010}.tar
+      storage: /public/lwt/PycharmProjects/ThinkDiff-main/data/roco_umls_mod4/{00000..00002}.tar # ThinkDiff-main/data/medicat_new/{00000..00010}.tar
 
 evaluation_datasets:
   football:
@@ -96,6 +97,7 @@ evaluation_datasets:
     sample_ratio: 1
 
 run:
+
   task: image_text_pretrain
   runner: runner_clip_t5
   # optimizer
@@ -107,13 +109,13 @@ run:
   max_grad_norm: 1.0
 
   weight_decay: 0.05
-  max_epoch: 2 # 40
+  max_epoch: 40 # 40
   num_workers: 8 # 8
-  warmup_steps: 1 # 2000
-  iters_per_epoch: 2  # 5000
+  warmup_steps: 800 # 2000
+  iters_per_epoch: 2000  # 5000
 
   seed: 42
-  output_dir: "./weight_log/roco_visloramoe_lbcw001_textenclora_2000_text32_bs4_entitymask03"
+  output_dir: "./weight_log/roco4_visloramoe_lbcw001_textenclora_textdeclora_2000_text32_bs4_entitymask03"
 
   amp: True
   amp_dtype: "bfloat16"
@@ -130,8 +132,8 @@ run:
   dist_url: "env://"
   distributed: True
 
-  wandb_log: False  # True: visualize wandb result
-  job_name: roco_visloramoe_lbcw001_textenclora_2000_text32_bs4_entitymask03 # roco_biovision_visloramoe_lbcw001_textlora_2000_text32_entitymask07
+  wandb_log: True  # True: visualize wandb result
+  job_name: roco4_visloramoe_lbcw001_textenclora_textdeclora_2000_text32_bs4_entitymask03 # roco_visloramoe_lbcw001_textenclora_textdeclora_2000_text32_bs4_entitymask03
   wandb_project_name: train_roco
   # TODO
   wandb_api_key: "b3f2e5da6d60bdb4fff9470bba639815aab1a67a"
